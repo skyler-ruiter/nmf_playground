@@ -7,6 +7,12 @@
 // #include "nmf.hpp"
 
 #define TINY_NUM 1e-15
+#define BLUE "\u001b[34m"
+#define RESET "\u001b[0m"
+#define GREEN "\u001b[32m"
+#define CYAN "\u001b[36m"
+#define MAGENTA "\u001b[35m"
+#define YELLOW "\u001b[33m"
 
 struct NMFResult {
     Eigen::MatrixXd w;
@@ -27,9 +33,24 @@ void scale(Eigen::MatrixXd& w, Eigen::VectorXd& d) {
         for (long int j = 0; j < w.cols(); ++j) w(i, j) /= d(i);
 };
 
+// Pearson correlation between two matrices
+inline double cor(const Eigen::MatrixXd& x, Eigen::MatrixXd& y) {
+    double x_i, y_i, sum_x = 0, sum_y = 0, sum_xy = 0, sum_x2 = 0, sum_y2 = 0;
+    const size_t n = x.size();
+    for (size_t i = 0; i < n; ++i) {
+        x_i = (*(x.data() + i));
+        y_i = (*(y.data() + i));
+        sum_x += x_i;
+        sum_y += y_i;
+        sum_xy += x_i * y_i;
+        sum_x2 += x_i * x_i;
+        sum_y2 += y_i * y_i;
+    }
+    return 1 - (n * sum_xy - sum_x * sum_y) / std::sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y));
+}
 
 // sequential coordinate descent for NMF with KL-divergence (need to add regularization)
-void scd_kl_update(Eigen::VectorXd& hj, const Eigen::MatrixXd& Wt, const Eigen::VectorXd& Aj, const Eigen::VectorXd& sumW, const unsigned int max_iter, const double rel_tol) {
+void scd_kl_update(Eigen::VectorXd& hj, Eigen::MatrixXd& H, int col, const Eigen::MatrixXd& Wt, const Eigen::VectorXd& Aj, const Eigen::VectorXd& sumW, const unsigned int max_iter, const double rel_tol) {
 
     double sumHj = hj.sum();
     Eigen::VectorXd Ajt = Wt.transpose() * hj;
@@ -61,12 +82,17 @@ void scd_kl_update(Eigen::VectorXd& hj, const Eigen::MatrixXd& Wt, const Eigen::
                 hj(k) = tmp;
             }
         }
+        // update col j in H with hj
+        for (int i = 0; i < H.rows(); i++) {
+            H(i, col) = hj(i);
+        }
+
     }
-    // return t;
+    // return int(t);
 }
 
 // update h given A and w
-inline void update(const Eigen::MatrixXd& h, const Eigen::MatrixXd& wt, Eigen::MatrixXd A, const double L1, const double L2, const int threads) {
+inline void update(Eigen::MatrixXd& h, const Eigen::MatrixXd& wt, Eigen::MatrixXd A, const double L1, const double L2, const int threads) {
 
     unsigned int max_iter = 100;
     double rel_tol = 1e-4;
@@ -76,25 +102,31 @@ inline void update(const Eigen::MatrixXd& h, const Eigen::MatrixXd& wt, Eigen::M
     #endif
     for (long int i = 0; i < h.cols(); ++i) {
         // get sum of W
-        Eigen::VectorXd sumW = wt.rowwise().sum();
+        // Eigen::VectorXd sumW = wt.rowwise().sum()
         // get the ith column of A
-        Eigen::VectorXd Aj = A.col(i);
+        // Eigen::VectorXd Aj = A.col(i)
         // get the ith column of H
         Eigen::VectorXd hj = h.col(i);
         // update based on kl-divergence
-        scd_kl_update(hj, wt, Aj, sumW, max_iter, rel_tol);
+        scd_kl_update(hj, h, i, wt, A.col(i), wt.rowwise().sum(), max_iter, rel_tol);
     }
 }
 
 NMFResult c_nmf(const Eigen::MatrixXd& A, const Eigen::MatrixXd& At, const unsigned int k, const unsigned int maxit, const double tol, const double L1_h, const double L2_h, const double L1_w, const double L2_w, const unsigned int threads, const unsigned int seed) {
-
-
+    printf("%sIter %s    KL Err   / Rel %s            P Corr   / Rel     %s        MSE      / Rel     %s\n", BLUE, GREEN, CYAN, MAGENTA, RESET);
+                //  0 |   0.593055 / 200.000000% |   0.962781 / 200.000000% |   0.017833 / 200.000000% |
     // initialize random W and H
-    Eigen::MatrixXd w = Eigen::MatrixXd::Random(k, A.rows()); // 100 x 10
-    Eigen::MatrixXd h = Eigen::MatrixXd::Zero(k, A.cols()); // 10 x 50
-    Eigen::VectorXd d = Eigen::VectorXd::Ones(w.rows()); // 100 x 1
+    Eigen::MatrixXd w = Eigen::MatrixXd::Random(k, A.rows());
+    Eigen::MatrixXd h = Eigen::MatrixXd::Random(k, A.cols());
+    Eigen::VectorXd d = Eigen::VectorXd::Ones(w.rows());
 
+    int iterations = 0;
     double rel_err = tol + 1;
+    double rel_MSE = tol + 1;
+    double rel_Corr = tol + 1;
+
+    double MSE_last = 1e99;
+    double corr_last = 1e99;
     double klerror_last = 1e99;
     std::vector<double> kl_error(maxit);
     // initialize kl_error to zero
@@ -104,20 +136,51 @@ NMFResult c_nmf(const Eigen::MatrixXd& A, const Eigen::MatrixXd& At, const unsig
         // update w
         update(w, h, At, L1_w, L2_w, threads);
         scale(w, d);
-        std::cout << "updated W" << std::endl;
+        // std::cout << "updated W" << std::endl;
+
         // update h
+        // std::cout << "H: " << h << std::endl;        
         update(h, w, A, L1_h, L2_h, threads);
+        // std::cout << "H: " << h << std::endl;
         scale(h, d);
-        std::cout << "updated H" << std::endl;
+        // std::cout << "updated H" << std::endl;
 
         // calculate fit
         Eigen::MatrixXd A_hat = w.transpose() * h;
-        kl_error[iter_] += ((-(A.array() + TINY_NUM).log() * (A_hat.array() + TINY_NUM) + A_hat.array()).mean());
+        // kl_error[iter_] += ((-(A.array() + TINY_NUM).log() * (A_hat.array() + TINY_NUM) + A_hat.array()).mean());
+
+        kl_error[iter_] += (A.array() * ((A.array() + TINY_NUM).array() / (A_hat.array() + TINY_NUM).array()).log() - A.array() + A_hat.array()).mean();
 
         // calculate relative error
-        rel_err = std::abs((klerror_last - kl_error[iter_]) / (klerror_last + kl_error[iter_] + TINY_NUM));
-        klerror_last = kl_error[iter_];
+        rel_err = 2 * ((klerror_last - kl_error[iter_]) / (klerror_last + kl_error[iter_] + TINY_NUM));
 
+        // rel_err = 2*(terr_last - terr(i_e)) / (terr_last + terr(i_e) + TINY_NUM );
+
+        klerror_last = kl_error[iter_];
+        /*
+        Black: 30
+        Red: 31
+        Green: 32
+        Yellow: 33
+        Blue: 34
+        Magenta: 35
+        Cyan: 36
+        White: 37
+        */
+
+        double MSE = Eigen::square((A - w.transpose() * h).array()).mean();
+        rel_MSE = 2 * ((MSE_last - MSE) / (MSE_last + MSE + TINY_NUM));
+        MSE_last = MSE;
+
+        double corr = cor(A, A_hat);
+        rel_Corr = 2 * ((corr_last - corr) / (corr_last + corr + TINY_NUM));
+        corr_last = corr;
+
+        // std::cout << "Iter: \u001b[34m" << iter_ << "\u001b[0m KL Error: " << kl_error[iter_] << " relative error: " << rel_err << " Corr: " << cor(A, A_hat) << std::endl;
+        printf("%s%4d |%s %10lf / %10lf\% |%s %10lf / %10lf\% |%s %10lf / %10lf\% |%s\n", BLUE, iter_, GREEN, kl_error[iter_], rel_err * 100, CYAN, corr, rel_Corr * 100, MAGENTA,  MSE, rel_MSE * 100, RESET);
+        // std::cout << "KL Error: " << klerror_last << std::endl;
+        // std::cout << "relative error: " << rel_err << std::endl;
+        // std::cout << "Corr: " << cor(A, A_hat) << std::endl;
     }
 
     return { w, d, h };
@@ -156,7 +219,7 @@ void readCSV(std::string filename, Eigen::Matrix<double, -1, -1>& A) {
 
 
 int main() {
-    std::cout << "Hello, world!" << std::endl;
+    // std::cout << "Hello, world!" << std::endl;
 
 
     // run a simple test
@@ -174,7 +237,12 @@ int main() {
     // std::cout << "D: " << result.d << std::endl;
     // std::cout << "H: " << result.h << std::endl;
 
-    std::cout << "Res: " << (A - (result.w.transpose() * result.h)).norm() << std::endl;
+    // std::cout << "Res: " << (A - (result.w.transpose() * result.h)).norm() << std::endl;
+    // std::cout << A - result.w.transpose() * result.h << std::endl;
+    Eigen::MatrixXd diff = A - result.w.transpose() * result.h;
+    diff = Eigen::square(diff.array());
+    std::cout << "Res: " << diff.mean() << std::endl;
+
 
     return 0;
 }
