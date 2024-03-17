@@ -1,7 +1,15 @@
 {
   "files.associations": {
+    "*.asm": "asm",
     "*.erb": "erb",
     "*.rmd": "markdown",
-    "iostream": "cpp"
-  }
+    "iostream": "cpp",
+    "array": "cpp",
+    "string": "cpp",
+    "string_view": "cpp",
+    "span": "cpp",
+    "core": "cpp",
+    "*.tcc": "cpp",
+    "vector": "cpp"
+}
 }
