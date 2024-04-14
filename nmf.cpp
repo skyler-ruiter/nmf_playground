@@ -128,7 +128,7 @@ int scd_kl_update(Eigen::Ref<Eigen::VectorXd> Hj, const Eigen::MatrixXd& Wt, Eig
 
 // update h given A and w
 inline void update(Eigen::MatrixXd& H, const Eigen::MatrixXd& Wt, const Eigen::MatrixXd A, const double L1, const double L2, const int threads) {
-    unsigned int max_iter = 100;
+    // unsigned int max_iter = 100;
     double rel_tol = 1e-4;
     Eigen::VectorXd sumW = Wt.rowwise().sum();
     Eigen::MatrixXd W = Wt.transpose();
@@ -141,7 +141,7 @@ inline void update(Eigen::MatrixXd& H, const Eigen::MatrixXd& Wt, const Eigen::M
     }
 }
 
-NMFResult c_nmf(const Eigen::MatrixXd& A, const unsigned int k, const double L1_h, const double L2_h, const double L1_w, const double L2_w, const unsigned int threads, const unsigned int seed, const bool calcKL = true) {
+NMFResult c_nmf(const Eigen::MatrixXd& A, const unsigned int k, const double tol = 1e-4, const double L1_h = 0.01, const double L2_h = 0, const double L1_w = 0.01, const double L2_w = 0, const unsigned int threads = 0, const unsigned int seed = 123, const bool calcKL = true) {
 
     // printf("%sIter %s    KL Err   / Relative Change %s\n", BLUE, GREEN, RESET);
 
@@ -216,8 +216,8 @@ void readCSV(std::string filename, Eigen::Matrix<double, -1, -1>& A) {
     std::cout << "Read " << data.size() << " rows and " << data[0].size() << " columns" << std::endl;
 
     A = Eigen::Matrix<double, -1, -1>(data.size(), data[0].size());
-    for (int i = 0; i < data.size(); i++) {
-        for (int j = 0; j < data[0].size(); j++) {
+    for (uint32_t i = 0; i < data.size(); i++) {
+        for (uint32_t j = 0; j < data[0].size(); j++) {
             A(i, j) = data[i][j];
         }
     }
@@ -235,7 +235,7 @@ int main() {
     readCSV("birds.csv", A);
     // readCSV("/home/sethwolfgang/Downloads/NNLM-master/nsclc.csv", A);
     A = A.cwiseAbs();
-    NMFResult result = c_nmf(A, 10, 0, 0, 0, 0, 0, 1); // run nmf
+    NMFResult result = c_nmf(A, 10, 0.01, 0, 0.01, 0, 0, 1);  // run nmf // singlet runs nmf with L1 = (0.01, 0.01) by default
     // NMFResult result = c_nmf(A, 15, 0, 0, 0, 0, 0, 1); // run nmf
 
     // std::cout << "W: " << result.w << std::endl;
@@ -250,7 +250,6 @@ int main() {
     // Eigen::MatrixXd diff = A - result.w.transpose() * result.h;
     // diff = Eigen::square(diff.array());
     // std::cout << "Res: " << diff.mean() << std::endl;
-
 
     return 0;
 }

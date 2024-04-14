@@ -22,7 +22,7 @@ void add_penalty(const unsigned int& i_e, std::vector<double> terr, const Eigen:
         terr[i_e] += L1_h * H.sum() / N_non_missing;
     }
 }
-
+ 
 int scd_kl_update(Eigen::Ref<Eigen::VectorXd> Hj, const Eigen::MatrixXd& Wt, const Eigen::VectorXd& Aj, const Eigen::VectorXd& sumW, const double L1_w, const double L2_w, const double& rel_tol) {
 
     // Problem:  Aj = W * Hj
